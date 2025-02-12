@@ -50,45 +50,7 @@ spec:
         timeout(time: 10, unit: 'MINUTES')
         disableConcurrentBuilds()
     }
-    parameters {
-        choice choices: ['BRANCH', 'REVISION', 'PULL_REQUESTS'], description: '', name: 'TYPE'
-        gitParameter (  branch: '', 
-                        branchFilter: 'origin/(.*)', 
-                        defaultValue: 'main', 
-                        description: '', 
-                        name: 'BRANCH',
-                        listSize: '10',
-                        quickFilterEnabled: true, 
-                        selectedValue: 'NONE', 
-                        sortMode: 'NONE', 
-                        tagFilter: '*', 
-                        type: 'PT_BRANCH', 
-                        useRepository: 'https://github.com/PineappleIncTeam/FinanceApp.git')
-        gitParameter (  branch: '', 
-                        branchFilter: 'origin/(.*)', 
-                        defaultValue: 'main', 
-                        description: '', 
-                        name: 'REVISION',
-                        listSize: '15',
-                        quickFilterEnabled: true, 
-                        selectedValue: 'NONE', 
-                        sortMode: 'NONE', 
-                        tagFilter: '*', 
-                        type: 'PT_REVISION', 
-                        useRepository: 'https://github.com/PineappleIncTeam/FinanceApp.git')
-        gitParameter (  branch: '', 
-                        branchFilter: 'origin/(.*)', 
-                        defaultValue: 'main', 
-                        description: '', 
-                        name: 'PULL_REQUESTS',
-                        listSize: '10',
-                        quickFilterEnabled: true, 
-                        selectedValue: 'NONE', 
-                        sortMode: 'NONE', 
-                        tagFilter: '*', 
-                        type: 'PT_PULL_REQUEST', 
-                        useRepository: 'https://github.com/PineappleIncTeam/FinanceApp.git')
-    }
+    
     stages {
         stage('Delete workspace before build starts') {
             steps {
@@ -201,7 +163,7 @@ spec:
                     spec:
                     containers:
                     - name: postgresdb
-                        image: postgres:16
+                        image: freenance/postgres
                         env:
                         - name: TZ
                             value: "UTC-3"
@@ -245,7 +207,7 @@ spec:
                     docker.withRegistry('', 'docker-hub-freenance') {
                     dockerImage.push()
                     }     
-                echo "Pushed Docker Image: ${env.IMAGE_NAME}:${commitId}"
+                echo "Pushed Docker Image: ${env.IMAGE_NAME}"
                 }
                   sh "docker rmi ${env.IMAGE_NAME}"
             }
@@ -261,5 +223,6 @@ spec:
                 }
             }
         }
+    }
     }
  
