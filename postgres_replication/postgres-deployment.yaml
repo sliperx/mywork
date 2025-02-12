@@ -1,0 +1,265 @@
+
+pipeline {
+    agent {
+        kubernetes {
+            defaultContainer 'docker'
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: jenkins
+  containers:
+    - name: docker
+      image: twnsnd2team/docker:v2
+      resources:
+        limits:
+          memory: "256Mi"
+          cpu: "200m"
+      command:
+        - sleep
+        - "1d"
+      volumeMounts:
+        - name: dockersock
+          mountPath: /var/run/docker.sock
+          readOnly: false
+  volumes:
+    - name: dockersock
+      hostPath:
+        path: /var/run/docker.sock
+    - name: kubeconfig
+      secret:
+        secretName: jenkins-agent
+                """
+        }
+    }
+   environment {
+    SUCCESS_MESSAGE = "Job: ${env.JOB_NAME} with number ${env.BUILD_NUMBER} was successful \n ${env.BUILD_URL}"
+    FAILURE_MESSAGE = "Job: ${env.JOB_NAME} with number ${env.BUILD_NUMBER} was failed \n ${env.BUILD_URL}"
+ 
+    APP_ENV = 'finance-dev'
+    IMAGE_BASE = 'freenance/postgres'
+    IMAGE_TAG = "v$BUILD_NUMBER"
+    IMAGE_NAME = "${env.IMAGE_BASE}"
+    IMAGE_NAME_LATEST = "${env.IMAGE_BASE}:latest"
+    DOCKERFILE_NAME = "Dockerfile"
+    DOCKER_REGISTRY = 'freenance'
+    KUBECONFIG = credentials('kubernetes-jenkins')
+    NAMESPACE = 'finance-dev'
+    }
+    options {
+        timeout(time: 10, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+    parameters {
+        choice choices: ['BRANCH', 'REVISION', 'PULL_REQUESTS'], description: '', name: 'TYPE'
+        gitParameter (  branch: '', 
+                        branchFilter: 'origin/(.*)', 
+                        defaultValue: 'main', 
+                        description: '', 
+                        name: 'BRANCH',
+                        listSize: '10',
+                        quickFilterEnabled: true, 
+                        selectedValue: 'NONE', 
+                        sortMode: 'NONE', 
+                        tagFilter: '*', 
+                        type: 'PT_BRANCH', 
+                        useRepository: 'https://github.com/PineappleIncTeam/FinanceApp.git')
+        gitParameter (  branch: '', 
+                        branchFilter: 'origin/(.*)', 
+                        defaultValue: 'main', 
+                        description: '', 
+                        name: 'REVISION',
+                        listSize: '15',
+                        quickFilterEnabled: true, 
+                        selectedValue: 'NONE', 
+                        sortMode: 'NONE', 
+                        tagFilter: '*', 
+                        type: 'PT_REVISION', 
+                        useRepository: 'https://github.com/PineappleIncTeam/FinanceApp.git')
+        gitParameter (  branch: '', 
+                        branchFilter: 'origin/(.*)', 
+                        defaultValue: 'main', 
+                        description: '', 
+                        name: 'PULL_REQUESTS',
+                        listSize: '10',
+                        quickFilterEnabled: true, 
+                        selectedValue: 'NONE', 
+                        sortMode: 'NONE', 
+                        tagFilter: '*', 
+                        type: 'PT_PULL_REQUEST', 
+                        useRepository: 'https://github.com/PineappleIncTeam/FinanceApp.git')
+    }
+    stages {
+        stage('Delete workspace before build starts') {
+            steps {
+                echo 'Deleting workspace'
+                deleteDir()
+            }
+        }
+    stage('create Dockerfile') {
+        steps {
+            script {
+                writeFile file: 'Dockerfile', text: '''
+                FROM postgres:16
+                COPY ./postgresMaster.sh /docker-entrypoint-initdb.d/postgresMaster.sh
+                RUN chmod 0666 /docker-entrypoint-initdb.d/postgresMaster.sh
+                '''
+            }
+        }
+    }
+    stage('create postgresMaster.sh') {
+        steps {
+            script {
+                writeFile file: 'postgresMaster.sh', text: '''
+                #!/bin/bash
+                echo "host all all all trust" >> "$PGDATA/pg_hba.conf"
+                echo "host replication $PG_REP_USER $PG_REP_HOST trust" >> "$PGDATA/pg_hba.conf"
+                set -e
+                psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -c "CREATE USER $PG_REP_USER REPLICATION LOGIN CONNECTION LIMIT 100 ENCRYPTED PASSWORD '$PG_REP_PASSWORD';"
+                cat >> ${PGDATA}/postgresql.conf <<EOF
+                wal_level = hot_standby
+                max_wal_senders = 8
+                hot_standby = on
+                #One chat takes up 50kb. If the load is 10,000 chats per hour, then chats take up 500mb. And 5gb should be enough for 10 hours
+                wal_keep_size = 5000
+
+                shared_preload_libraries = 'pg_stat_statements'
+                pg_stat_statements.track = 'all'
+                track_activity_query_size = '2048'
+                EOF
+                '''
+            }
+        }
+    }
+    stage('create k8s manifest') {
+        steps {
+            script {
+                writeFile file: 'DeploymetDatabaseDev.yaml', text: '''
+                apiVersion: v1
+                kind: PersistentVolume
+                metadata:
+                namespace: {{NAMESPACE}}
+                name: postgresdb-pv-{{NAMESPACE}}
+                labels:
+                    type: local
+                    app: postgresdb-dev
+                spec:
+                storageClassName: local-storage
+                capacity:
+                    storage: 2Gi
+                accessModes:
+                    - ReadWriteOnce
+                hostPath:
+                    path: "/data/db/{{NAMESPACE}}/"
+                ---
+                apiVersion: v1
+                kind: PersistentVolumeClaim
+                metadata:
+                namespace: {{NAMESPACE}}
+                name: postgresdb-pvc-{{NAMESPACE}}
+                spec:
+                storageClassName: local-storage
+                accessModes:
+                    - ReadWriteOnce
+                resources:
+                    requests:
+                    storage: 2Gi
+                ---
+                apiVersion: v1
+                kind: Service
+                metadata:
+                namespace: {{NAMESPACE}}
+                name: postgresdb
+                labels:
+                    app: postgresdb-dev
+                spec:
+                type: NodePort
+                ports:
+                    - port: 5432
+                    targetPort: 5432
+                    nodePort: 30030
+                selector:
+                    app: postgresdb-dev
+                ---
+                apiVersion: apps/v1
+                kind: StatefulSet
+                metadata:
+                name: postgresdb
+                namespace: {{NAMESPACE}}
+                spec:
+                replicas: 1
+                selector:
+                    matchLabels:
+                    app: postgresdb-dev
+                serviceName: postgresdb-headless
+                template:
+                    metadata:
+                    labels:
+                        app: postgresdb-dev
+                    annotations:
+                        fluentd.active: 'true'
+                    spec:
+                    containers:
+                    - name: postgresdb
+                        image: postgres:16
+                        env:
+                        - name: TZ
+                            value: "UTC-3"
+                        - name: POSTGRES_PASSWORD
+                            valueFrom:
+                            secretKeyRef:
+                                name: postgresql-secret-dev
+                                key: POSTGRES_PASSWORD
+                        - name: POSTGRES_USER
+                            valueFrom:
+                            secretKeyRef:
+                                name: postgresql-secret-dev
+                                key: POSTGRES_USER
+                        - name: POSTGRES_DB
+                            valueFrom:
+                            secretKeyRef:
+                                name: postgresql-secret-dev
+                                key: POSTGRES_DB
+                        volumeMounts:
+                        - name: postgresdb-data
+                        mountPath: /var/lib/postgresql/data
+                        resources:
+                        requests:
+                            memory: "145Mi"
+                            cpu: "25m"
+                        limits:
+                            memory: "180Mi"
+                            cpu: "160m"
+                    volumes:
+                        - name: postgresdb-data
+                        persistentVolumeClaim:
+                            claimName: postgresdb-pvc-{{NAMESPACE}}
+                '''
+            }
+        }
+    }
+    stage('build & push image') {
+        steps {
+            script {
+                def dockerImage = docker.build("${env.IMAGE_NAME}","-f ${env.DOCKERFILE_NAME} .")
+                    docker.withRegistry('', 'docker-hub-freenance') {
+                    dockerImage.push()
+                    }     
+                echo "Pushed Docker Image: ${env.IMAGE_NAME}:${commitId}"
+                }
+                  sh "docker rmi ${env.IMAGE_NAME}"
+            }
+        }
+    }
+            
+         stage('Deploy to Kubernetes') {
+            steps {
+                withKubeConfig([credentialsId: 'kubernetes-jenkins']) {
+                    sh "sed -i 's/{{NAMESPACE}}/${NAMESPACE}/g' DeploymetDatabaseDev.yaml"
+                    sh "sed -i 's/{{IMAGE_TAG}}/${commitId}/g' DeploymetDatabaseDev.yaml"
+                    sh 'kubectl apply -f DeploymetDatabaseDev.yaml'
+                }
+            }
+        }
+    }
+ 
