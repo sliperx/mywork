@@ -2,68 +2,67 @@ apiVersion: v1
 kind: PersistentVolume
 metadata:
   namespace: {{NAMESPACE}}
-  name: postgresdb-pv-{{NAMESPACE}}
+  name: postgresdb-pv-master-{{NAMESPACE}}
   labels:
     type: local
-    app: postgresdb-dev
+    app: postgresdb-master-{{NAMESPACE}}
 spec:
   storageClassName: local-storage
   capacity:
-    storage: 2Gi
+    storage: 350Mi
   accessModes:
     - ReadWriteOnce
   hostPath:
-    path: "/data/db/{{NAMESPACE}}/"
+    path: "/data/db-master/{{NAMESPACE}}/"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   namespace: {{NAMESPACE}}
-  name: postgresdb-pvc-{{NAMESPACE}}
+  name: postgresdb-pvc-master-{{NAMESPACE}}
 spec:
   storageClassName: local-storage
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 2Gi
+      storage: 350Mi
 ---
 apiVersion: v1
 kind: Service
 metadata:
   namespace: {{NAMESPACE}}
-  name: postgresdb
+  name: postgresdb-master
   labels:
-    app: postgresdb-dev
+    app: postgresdb-master-{{NAMESPACE}}
 spec:
-  type: NodePort
+  type: ClusterIP
   ports:
     - port: 5432
       targetPort: 5432
-      nodePort: 30030
   selector:
-    app: postgresdb-dev
+    app: postgresdb-master-{{NAMESPACE}}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: postgresdb
+  name: postgresdb-master
   namespace: {{NAMESPACE}}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: postgresdb-dev
+      app: postgresdb-master-{{NAMESPACE}}
   serviceName: postgresdb-headless
   template:
     metadata:
       labels:
-        app: postgresdb-dev
+        app: postgresdb-master-{{NAMESPACE}}
       annotations:
         fluentd.active: 'true'
     spec:
       containers:
-      - name: postgresdb
+      - name: postgresdb-master
         image: freenance/postgres
         env:
           - name: TZ
@@ -96,4 +95,4 @@ spec:
       volumes:
         - name: postgresdb-data
           persistentVolumeClaim:
-            claimName: postgresdb-pvc-{{NAMESPACE}}
+            claimName: postgresdb-pvc-master-{{NAMESPACE}}

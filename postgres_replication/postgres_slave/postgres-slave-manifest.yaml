@@ -5,15 +5,15 @@ metadata:
   name: postgresdb-pv-slave-{{NAMESPACE}}
   labels:
     type: local
-    app: postgresdb-dev-slave
+    app: postgresdb-slave-{{NAMESPACE}}
 spec:
   storageClassName: local-storage
   capacity:
-    storage: 2Gi
+    storage: 350Mi
   accessModes:
     - ReadWriteOnce
   hostPath:
-    path: "/data/db/{{NAMESPACE}}/"
+    path: "/data/db-slave/{{NAMESPACE}}/"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -26,23 +26,23 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 2Gi
+      storage: 350Mi
 ---
 apiVersion: v1
 kind: Service
 metadata:
   namespace: {{NAMESPACE}}
-  name: postgresdb
+  name: postgresdb-slave
   labels:
-    app: postgresdb-dev-slave
+    app: postgresdb-slave-{{NAMESPACE}}
 spec:
   type: NodePort
   ports:
-    - port: 5432
+    - port: 5433
       targetPort: 5432
       nodePort: 30030
   selector:
-    app: postgresdb-dev-slave
+    app: postgresdb-slave-{{NAMESPACE}}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -53,12 +53,12 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      app: postgresdb-dev-slave
+      app: postgresdb-slave-{{NAMESPACE}}
   serviceName: postgresdb-headless
   template:
     metadata:
       labels:
-        app: postgresdb-dev-slave
+        app: postgresdb-slave-{{NAMESPACE}}
       annotations:
         fluentd.active: 'true'
     spec:
