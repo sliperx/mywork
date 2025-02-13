@@ -34,7 +34,7 @@ spec:
     }
    environment {
     APP_ENV = 'finance-dev'
-    IMAGE_BASE = 'freenance/postgres'
+    IMAGE_BASE = 'freenance/postgres-master'
     IMAGE_TAG = "v$BUILD_NUMBER"
     IMAGE_NAME = "${env.IMAGE_BASE}"
     IMAGE_NAME_LATEST = "${env.IMAGE_BASE}:latest"
@@ -82,7 +82,7 @@ spec:
                 withKubeConfig([credentialsId: 'kubernetes-jenkins']) {
                     sh "sed -i 's/{{NAMESPACE}}/${NAMESPACE}/g' postgres-master-manifest.yaml"
                     sh "sed -i 's/{{IMAGE_TAG}}/${commitId}/g' postgres-master-manifest.yaml"
-                    sh 'kubectl apply -f postgres-master-manifest.yaml'
+                    sh 'kubectl apply -f postgres-master.yaml'
                 }
             }
         }

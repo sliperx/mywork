@@ -64,7 +64,7 @@ spec:
     spec:
       containers:
       - name: postgresdb-slave
-        image: freenance/postgres
+        image: freenance/postgres-slave:{{IMAGE_TAG}}
         env:
           - name: TZ
             value: "UTC-3"
