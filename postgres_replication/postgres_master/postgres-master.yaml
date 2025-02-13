@@ -13,7 +13,7 @@ spec:
   accessModes:
     - ReadWriteOnce
   hostPath:
-    path: "/data/db-master/{{NAMESPACE}}/"
+    path: "/data/db/{{NAMESPACE}}/master/"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
