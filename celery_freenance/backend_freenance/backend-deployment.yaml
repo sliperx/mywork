@@ -1,3 +1,225 @@
+pipeline {
+    agent {
+        kubernetes {
+            defaultContainer 'docker'
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: jenkins
+  containers:
+    - name: docker
+      image: twnsnd2team/docker:v2
+      resources:
+        limits:
+          memory: "256Mi"
+          cpu: "200m"
+      command:
+        - sleep
+        - "1d"
+      volumeMounts:
+        - name: dockersock
+          mountPath: /var/run/docker.sock
+          readOnly: false
+  volumes:
+    - name: dockersock
+      hostPath:
+        path: /var/run/docker.sock
+    - name: kubeconfig
+      secret:
+        secretName: jenkins-agent
+                """
+        }
+    }
+   environment {
+    APP_ENV = 'finance-dev'
+    IMAGE_BASE = 'freenance/backend-dev'
+    IMAGE_TAG = "v$BUILD_NUMBER"
+    IMAGE_NAME = "${env.IMAGE_BASE}"
+    IMAGE_NAME_LATEST = "${env.IMAGE_BASE}:latest"
+    HOST = "https://freenance.twnsnd.online"
+    DOCKERFILE_NAME = "Dockerfile-new"
+    DOCKER_REGISTRY = 'freenance'
+    KUBECONFIG = credentials('kubernetes-jenkins')
+    NAMESPACE = 'finance-dev'
+    K8S_DEPLOYMENT_NAME = 'finance-service'
+    }
+    options {
+        timeout(time: 10, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+    parameters {
+        choice choices: ['BRANCH', 'REVISION', 'PULL_REQUESTS'], description: '', name: 'TYPE'
+        gitParameter (  branch: '', 
+                        branchFilter: 'origin/(.*)', 
+                        defaultValue: 'main', 
+                        description: '', 
+                        name: 'BRANCH',
+                        listSize: '10',
+                        quickFilterEnabled: true, 
+                        selectedValue: 'NONE', 
+                        sortMode: 'NONE', 
+                        tagFilter: '*', 
+                        type: 'PT_BRANCH', 
+                        useRepository: 'https://github.com/PineappleIncTeam/FinanceApp.git')
+        gitParameter (  branch: '', 
+                        branchFilter: 'origin/(.*)', 
+                        defaultValue: 'main', 
+                        description: '', 
+                        name: 'REVISION',
+                        listSize: '15',
+                        quickFilterEnabled: true, 
+                        selectedValue: 'NONE', 
+                        sortMode: 'NONE', 
+                        tagFilter: '*', 
+                        type: 'PT_REVISION', 
+                        useRepository: 'https://github.com/PineappleIncTeam/FinanceApp.git')
+        gitParameter (  branch: '', 
+                        branchFilter: 'origin/(.*)', 
+                        defaultValue: 'main', 
+                        description: '', 
+                        name: 'PULL_REQUESTS',
+                        listSize: '10',
+                        quickFilterEnabled: true, 
+                        selectedValue: 'NONE', 
+                        sortMode: 'NONE', 
+                        tagFilter: '*', 
+                        type: 'PT_PULL_REQUEST', 
+                        useRepository: 'https://github.com/PineappleIncTeam/FinanceApp.git')
+    }
+    stages {
+        stage('Delete workspace before build starts') {
+            steps {
+                echo 'Deleting workspace'
+                deleteDir()
+            }
+        }
+        stage('Checkout') {
+            parallel {
+                stage('BRANCH') {
+                    when {
+                        expression { params.TYPE == 'BRANCH'}
+                    } 
+                    steps{
+                        checkout(
+                            [$class: 'GitSCM', 
+                            branches: [[name: "${params.BRANCH}"]], 
+                            doGenerateSubmoduleConfigurations: false, 
+                            extensions: [],
+                            submoduleCfg: [], userRemoteConfigs: 
+                            [[credentialsId: 'git_freenance', 
+                            url: 'https://github.com/PineappleIncTeam/FinanceApp.git']]]
+                            )
+                              script {
+                                commitId = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                                currentBuild.description = "${commitId}"
+                                echo "${commitId}"
+                              }
+                        }
+                }
+                stage('REVISION') {
+                    when {
+                        expression { params.TYPE == 'REVISION'}
+                    } 
+                    steps{
+                        checkout(
+                            [$class: 'GitSCM', 
+                            branches: [[name: "${params.REVISION}"]], 
+                            doGenerateSubmoduleConfigurations: false, 
+                            extensions: [],
+                            submoduleCfg: [], userRemoteConfigs: 
+                            [[credentialsId: 'git_freenance',
+                            url: 'https://github.com/PineappleIncTeam/FinanceApp.git']]]
+                            )
+                            script {
+                                commitId = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                                currentBuild.description = "${commitId}"
+                                echo "${commitId}"
+                            }
+                        }
+                }
+                stage('PULL_REQUESTS') {
+                    when {
+                        expression { params.TYPE == 'PULL_REQUESTS'}
+                    } 
+                    steps{
+                        checkout(
+                            [$class: 'GitSCM', 
+                            branches: [[name: "pr/${params.PULL_REQUESTS}/head"]], 
+                            doGenerateSubmoduleConfigurations: false, 
+                            extensions: [],
+                            submoduleCfg: [], userRemoteConfigs: 
+                            [[credentialsId: 'git_freenance', 
+                            refspec: '+refs/pull/*:refs/remotes/origin/pr/*',
+                            url: 'https://github.com/PineappleIncTeam/FinanceApp.git']]]
+                            )
+                            script {
+                                commitId = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                                currentBuild.description = "${commitId}"
+                                echo "${commitId}"
+                            }
+                        }
+                }
+            }
+        }
+        stage ('Сhange variables') {
+            steps {
+                    sh '''sed -i 's#back\\.freenance\\.online#dev.freenance.store#g' FinanceBackend/settings.py'''
+                    sh '''sed -i "s#DOMAIN = 'freenance\\.online'#DOMAIN = 'dev.freenance.store'#g" FinanceBackend/settings.py'''
+                    sh '''sed -i 's#freenance\\.online#swagger.freenance.store#g' FinanceBackend/settings.py'''
+                    sh "sed -i 's#https://swagger.freenance.store#http://swagger.freenance.store#g' FinanceBackend/settings.py"
+                    sh "sed -i 's#localhost#swagger-dev.freenance.store#g' FinanceBackend/settings.py"
+                    sh "sed -i 's/httpx==0.24.1/httpx>=0.25.0,<0.26.0/' requirements.txt"
+                    sh "cat FinanceBackend/settings.py"
+            }
+        }  
+        stage ('list files') {
+            steps {
+                sh "ls -la"
+            }
+         }
+         stage ('Add Dockerfile') {
+    steps {
+        script {
+            def envContent = """
+FROM python:3.11 as builder
+
+RUN pip install poetry==1.4.2
+
+ENV POETRY_NO_INTERACTION=1 \
+    POETRY_VIRTUALENVS_IN_PROJECT=1 \
+    POETRY_VIRTUALENVS_CREATE=1 \
+    POETRY_CACHE_DIR=/tmp/poetry_cache
+
+WORKDIR /app
+
+COPY pyproject.toml ./
+RUN poetry install --without dev --no-root
+
+FROM python:3.11-slim as runtime
+
+ENV VIRTUAL_ENV=/app/.venv \
+    PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH="/app"
+
+WORKDIR /app
+
+COPY --from=builder /app/.venv /app/.venv
+COPY . .
+
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:8000 FinanceBackend.wsgi:application & celery -A FinanceBackend worker -n workerсurrancy@%h --pool=solo --loglevel=info & celery -A FinanceBackend beat --loglevel=info"]
+
+
+            """
+            writeFile file: 'Dockerfile-new', text: envContent
+        }
+        sh "cat Dockerfile-new"
+    }
+}
+        stage('Create deployment.yaml') {
+            steps {
+                script {
+                    def serviceYaml = '''
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -82,3 +304,33 @@ spec:
         - name: freenance-storage
           persistentVolumeClaim:
             claimName: freenance-pvc-dev
+
+                                        '''
+                    writeFile file: 'deployment.yaml', text: serviceYaml
+                }
+            }
+        }
+        stage('Build & Push images') {
+          steps {
+                script {
+                  def dockerImage = docker.build("${env.IMAGE_NAME}:${commitId}", "-f ${env.DOCKERFILE_NAME} .")
+                  docker.withRegistry('', 'docker-hub-freenance') {
+                  dockerImage.push()
+                  dockerImage.push("${commitId}")
+                  }     
+                echo "Pushed Docker Image: ${env.IMAGE_NAME}:${commitId}"
+                }
+                  sh "docker rmi ${env.IMAGE_NAME}:${commitId}"
+          }
+        }
+         stage('Deploy to Kubernetes') {
+            steps {
+                withKubeConfig([credentialsId: 'kubernetes-jenkins']) {
+                    sh "sed -i 's/{{NAMESPACE}}/${NAMESPACE}/g' deployment.yaml"
+                    sh "sed -i 's/{{IMAGE_TAG}}/${commitId}/g' deployment.yaml"
+                    sh 'kubectl apply -f deployment.yaml'
+                }
+            }
+        }
+    }
+} 
