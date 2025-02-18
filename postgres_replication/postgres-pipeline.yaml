@@ -66,13 +66,13 @@ spec:
     stage('build & push image') {
         steps {
             script {
-                def dockerImage = docker.build("${env.IMAGE_NAME}:${commitId}","-f ${env.DOCKERFILE_NAME} .")
+                def dockerImage = docker.build("${env.IMAGE_NAME}:${IMAGE_TAG}","-f ${env.DOCKERFILE_NAME} .")
                     docker.withRegistry('', 'docker-hub-freenance') {
                     dockerImage.push()
                     }     
-                echo "Pushed Docker Image: ${env.IMAGE_NAME}:${commitId}"
+                echo "Pushed Docker Image: ${env.IMAGE_NAME}:${IMAGE_TAG}"
                 }
-                  sh "docker rmi ${env.IMAGE_NAME}:${commitId}"
+                  sh "docker rmi ${env.IMAGE_NAME}:${IMAGE_TAG}"
             }
         }
     }
@@ -81,7 +81,7 @@ spec:
             steps {
                 withKubeConfig([credentialsId: 'kubernetes-jenkins']) {
                     sh "sed -i 's/{{NAMESPACE}}/${NAMESPACE}/g' postgres-master-manifest.yaml"
-                    sh "sed -i 's/{{IMAGE_TAG}}/${commitId}/g' postgres-master-manifest.yaml"
+                    sh "sed -i 's/{{IMAGE_TAG}}/${IMAGE_TAG}/g' postgres-master-manifest.yaml"
                     sh 'kubectl apply -f postgres-master.yaml'
                 }
             }
