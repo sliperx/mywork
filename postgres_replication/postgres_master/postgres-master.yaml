@@ -1,98 +1,108 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  namespace: {{NAMESPACE}}
-  name: postgresdb-pv-master-{{NAMESPACE}}
-  labels:
-    type: local
-    app: postgresdb-master-{{NAMESPACE}}
+    namespace: { ? { NAMESPACE } }
+    name: postgresdb-pv-master-{{NAMESPACE}}
+    labels:
+        type: local
+        app: postgresdb-master-{{NAMESPACE}}
 spec:
-  storageClassName: local-storage
-  capacity:
-    storage: 350Mi
-  accessModes:
-    - ReadWriteOnce
-  hostPath:
-    path: "/data/db/{{NAMESPACE}}/master/"
+    storageClassName: local-storage
+    capacity:
+        storage: 350Mi
+    accessModes:
+      - ReadWriteOnce
+    hostPath:
+        path: "/data/db/{{NAMESPACE}}/master/"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  namespace: {{NAMESPACE}}
-  name: postgresdb-pvc-master-{{NAMESPACE}}
+    namespace: { ? { NAMESPACE } }
+    name: postgresdb-pvc-master-{{NAMESPACE}}
 spec:
-  storageClassName: local-storage
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 130Mi
+    storageClassName: local-storage
+    accessModes:
+      - ReadWriteOnce
+    resources:
+        requests:
+            storage: 130Mi
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  namespace: {{NAMESPACE}}
-  name: postgresdb-master
-  labels:
-    app: postgresdb-master-{{NAMESPACE}}
+    namespace: { ? { NAMESPACE } }
+    name: postgresdb-master
+    labels:
+        app: postgresdb-master-{{NAMESPACE}}
 spec:
-  type: ClusterIP
-  ports:
-    - port: 5432
-      targetPort: 5432
-  selector:
-    app: postgresdb-master-{{NAMESPACE}}
+    type: ClusterIP
+    ports:
+      - port: 5432
+        targetPort: 5432
+    selector:
+        app: postgresdb-master-{{NAMESPACE}}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: postgresdb-master
-  namespace: {{NAMESPACE}}
+    name: postgresdb-master
+    namespace: { ? { NAMESPACE } }
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: postgresdb-master-{{NAMESPACE}}
-  serviceName: postgresdb-headless
-  template:
-    metadata:
-      labels:
-        app: postgresdb-master-{{NAMESPACE}}
-      annotations:
-        fluentd.active: 'true'
-    spec:
-      containers:
-      - name: postgresdb-master
-        image: freenance/postgres-master:{{IMAGE_TAG}}
-        env:
-          - name: TZ
-            value: "UTC-3"
-          - name: POSTGRES_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: postgresql-secret-dev
-                key: POSTGRES_PASSWORD
-          - name: POSTGRES_USER
-            valueFrom:
-              secretKeyRef:
-                name: postgresql-secret-dev
-                key: POSTGRES_USER
-          - name: POSTGRES_DB
-            valueFrom:
-              secretKeyRef:
-                name: postgresql-secret-dev
-                key: POSTGRES_DB
-        volumeMounts:
-        - name: postgresdb-data
-          mountPath: /var/lib/postgresql/data
-        resources:
-          requests:
-            memory: "145Mi"
-            cpu: "25m"
-          limits:
-            memory: "180Mi"
-            cpu: "160m"
-      volumes:
-        - name: postgresdb-data
-          persistentVolumeClaim:
-            claimName: postgresdb-pvc-master-{{NAMESPACE}}
+    replicas: 1
+    selector:
+        matchLabels:
+            app: postgresdb-master-{{NAMESPACE}}
+    serviceName: postgresdb-headless
+    template:
+        metadata:
+            labels:
+                app: postgresdb-master-{{NAMESPACE}}
+            annotations:
+                fluentd.active: 'true'
+        spec:
+            containers:
+              - name: postgresdb-master
+                image: freenance/postgres-master:{{IMAGE_TAG}}
+                env:
+                  - name: TZ
+                    value: "UTC-3"
+                  - name: POSTGRES_PASSWORD
+                    valueFrom:
+                        secretKeyRef:
+                            name: postgresql-secret-dev
+                            key: POSTGRES_PASSWORD
+                  - name: POSTGRES_USER
+                    valueFrom:
+                        secretKeyRef:
+                            name: postgresql-secret-dev
+                            key: POSTGRES_USER
+                  - name: POSTGRES_DB
+                    valueFrom:
+                        secretKeyRef:
+                            name: postgresql-secret-dev
+                            key: POSTGRES_DB
+                  - name: PG_REP_USER
+                    valueFrom:
+                        secretKeyRef:
+                            name: postgresql-secret-dev
+                            key: PG_REP_USER
+                  - name: PG_REP_HOST
+                    valueFrom:
+                        secretKeyRef:
+                            name: postgresql-secret-dev
+                            key: PG_REP_HOST
+                volumeMounts:
+                  - name: postgresdb-data
+                    mountPath: /var/lib/postgresql/data
+                resources:
+                    requests:
+                        memory: "145Mi"
+                        cpu: "25m"
+                    limits:
+                        memory: "180Mi"
+                        cpu: "160m"
+            volumes:
+              - name: postgresdb-data
+                persistentVolumeClaim:
+                    claimName: postgresdb-pvc-master-{{NAMESPACE}}

@@ -33,7 +33,7 @@ spec:
     }
    environment {
     APP_ENV = 'finance-dev'
-    IMAGE_BASE = 'freenance/postgres-master'
+    IMAGE_BASE = 'freenance/postgres-slave'
     IMAGE_TAG = "v$BUILD_NUMBER"
     IMAGE_NAME = "${env.IMAGE_BASE}"
     IMAGE_NAME_LATEST = "${env.IMAGE_BASE}:latest"
@@ -55,24 +55,21 @@ spec:
            stage('Create postgres-script') {
             steps {
                 script {
-                    writeFile file: 'postgresMaster.sh', text: '''
-#!/bin/bash
-echo "host all all all trust" >> "$PGDATA/pg_hba.conf"
-echo "host replication $PG_REP_USER $PG_REP_HOST trust" >> "$PGDATA/pg_hba.conf"
-set -e
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" -c "CREATE USER $PG_REP_USER REPLICATION LOGIN CONNECTION LIMIT 100 ENCRYPTED PASSWORD '$PG_REP_PASSWORD';"
-cat >> ${PGDATA}/postgresql.conf <<EOF
-wal_level = hot_standby
-max_wal_senders = 8
-hot_standby = on
-wal_keep_size = 130
-shared_preload_libraries = 'pg_stat_statements'
-pg_stat_statements.track = 'all'
-track_activity_query_size = '2048'
-EOF
+                    writeFile file: 'postgresSlave.sh', text: '''
+if [ "$(ls -A /var/lib/postgresql/data)" ]; then
+   echo "not empty";
+else
+   pg_basebackup -P -R -X stream -c fast -h $PG_MASTER_HOST -U $PG_REP_USER -D /var/lib/postgresql/data --no-password;
+fi
+if [ "$(ls -A /var/lib/postgresql/data/standby.signal)" ]; then
+   echo "replica";
+else
+   rm -r /var/lib/postgresql/data/*;
+   pg_basebackup -P -R -X stream -c fast -h $PG_MASTER_HOST -U $PG_REP_USER -D /var/lib/postgresql/data --no-password;
+fi
                     '''
                 }
-                sh "cat postgresMaster.sh"
+                sh "cat postgresSlave.sh"
             }
     }
         stage('Create dockerfile') {
@@ -80,8 +77,8 @@ EOF
                 script {
                     writeFile file: 'Dockerfile', text: """
                     FROM postgres:16
-                    COPY ./postgresMaster.sh /docker-entrypoint-initdb.d/postgresMaster.sh
-                    RUN chmod 0666 /docker-entrypoint-initdb.d/postgresMaster.sh
+                    COPY ./postgresSlave.sh /docker-entrypoint-initdb.d/postgresSlave.sh
+                    RUN chmod 0777 /docker-entrypoint-initdb.d/postgresSlave.sh
                     """
                 }
                     sh "cat Dockerfile"
@@ -90,29 +87,29 @@ EOF
         stage('Create deployment') {
             steps {
                 script {
-                    writeFile file: 'postgres-master-manifest.yaml', text: """
+                    writeFile file: 'postgres-slave-manifest.yaml', text: """
 apiVersion: v1
 kind: PersistentVolume
 metadata:
   namespace: {{NAMESPACE}}
-  name: postgresdb-pv-master-{{NAMESPACE}}
+  name: postgresdb-pv-slave-{{NAMESPACE}}
   labels:
     type: local
-    app: postgresdb-master-{{NAMESPACE}}
+    app: postgresdb-slave-{{NAMESPACE}}
 spec:
   storageClassName: local-storage
   capacity:
-    storage: 350Mi
+    storage: 130Mi
   accessModes:
     - ReadWriteOnce
   hostPath:
-    path: "/data/db/{{NAMESPACE}}/master/"
+    path: "/data/db/{{NAMESPACE}}/slave/"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   namespace: {{NAMESPACE}}
-  name: postgresdb-pvc-master-{{NAMESPACE}}
+  name: postgresdb-pvc-slave-{{NAMESPACE}}
 spec:
   storageClassName: local-storage
   accessModes:
@@ -125,84 +122,84 @@ apiVersion: v1
 kind: Service
 metadata:
   namespace: {{NAMESPACE}}
-  name: postgresdb-master
+  name: postgresdb-slave
   labels:
-    app: postgresdb-master-{{NAMESPACE}}
+    app: postgresdb-slave-{{NAMESPACE}}
 spec:
-  type: ClusterIP
+  type: NodePort
   ports:
-    - port: 5432
+    - port: 5433
       targetPort: 5432
+      nodePort: 30031
   selector:
-    app: postgresdb-master-{{NAMESPACE}}
+    app: postgresdb-slave-{{NAMESPACE}}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: postgresdb-master
+  name: postgresdb-slave
   namespace: {{NAMESPACE}}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: postgresdb-master-{{NAMESPACE}}
+      app: postgresdb-slave-{{NAMESPACE}}
   serviceName: postgresdb-headless
   template:
     metadata:
       labels:
-        app: postgresdb-master-{{NAMESPACE}}
+        app: postgresdb-slave-{{NAMESPACE}}
       annotations:
         fluentd.active: 'true'
     spec:
       containers:
-        - name: postgresdb-master
-          image: freenance/postgres-master:{{IMAGE_TAG}}
-          env:
-            - name: TZ
-              value: "UTC-3"
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: postgresql-secret-dev
-                  key: POSTGRES_PASSWORD
-            - name: POSTGRES_USER
-              valueFrom:
-                secretKeyRef:
-                  name: postgresql-secret-dev
-                  key: POSTGRES_USER
-            - name: POSTGRES_DB
-              valueFrom:
-                secretKeyRef:
-                  name: postgresql-secret-dev
-                  key: POSTGRES_DB
-            - name: PG_REP_USER
-              valueFrom:
-                secretKeyRef:
-                  name: postgresql-secret-dev
-                  key: PG_REP_USER
-            - name: PG_REP_HOST
-              valueFrom:
-                secretKeyRef:
-                  name: postgresql-secret-dev
-                  key: PG_REP_HOST
-          volumeMounts:
-            - name: postgresdb-data
-              mountPath: /var/lib/postgresql/data
-          resources:
-            requests:
-              memory: "145Mi"
-              cpu: "25m"
-            limits:
-              memory: "180Mi"
-              cpu: "160m"
+      - name: postgresdb-slave
+        image: freenance/postgres-slave:{{IMAGE_TAG}}
+        env:
+          - name: TZ
+            value: "UTC-3"
+          - name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgresql-secret-dev
+                key: POSTGRES_PASSWORD
+          - name: POSTGRES_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgresql-secret-dev
+                key: POSTGRES_USER
+          - name: POSTGRES_DB
+            valueFrom:
+              secretKeyRef:
+                name: postgresql-secret-dev
+                key: POSTGRES_DB
+          - name: PG_REP_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgresql-secret-dev
+                key: PG_REP_USER
+          - name: PG_MASTER_HOST
+            valueFrom:
+              secretKeyRef:
+                name: postgresql-secret-dev
+                key: PG_MASTER_HOST
+        volumeMounts:
+        - name: postgresdb-data
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            memory: "145Mi"
+            cpu: "25m"
+          limits:
+            memory: "180Mi"
+            cpu: "160m"
       volumes:
         - name: postgresdb-data
           persistentVolumeClaim:
-            claimName: postgresdb-pvc-master-{{NAMESPACE}}
-
+            claimName: postgresdb-pvc-slave-{{NAMESPACE}}
                     """
                 }
-                sh "cat postgres-master-manifest.yaml"
+                sh "cat postgres-slave-manifest.yaml"
             }
     }
         stage('build & push image') {
@@ -220,10 +217,10 @@ spec:
         stage('Deploy to Kubernetes') {
             steps {
                 withKubeConfig([credentialsId: 'kubernetes-jenkins']) {
-                    sh "sed -i 's/{{NAMESPACE}}/${NAMESPACE}/g' postgres-master-manifest.yaml"
-                    sh "sed -i 's/{{IMAGE_TAG}}/${IMAGE_TAG}/g' postgres-master-manifest.yaml"
-                    sh "cat postgres-master-manifest.yaml"
-                    sh 'kubectl apply -f postgres-master-manifest.yaml'
+                    sh "sed -i 's/{{NAMESPACE}}/${NAMESPACE}/g' postgres-slave-manifest.yaml"
+                    sh "sed -i 's/{{IMAGE_TAG}}/${IMAGE_TAG}/g' postgres-slave-manifest.yaml"
+                    sh "cat postgres-slave-manifest.yaml"
+                    sh 'kubectl apply -f postgres-slave-manifest.yaml'
                 }
             }
         }
