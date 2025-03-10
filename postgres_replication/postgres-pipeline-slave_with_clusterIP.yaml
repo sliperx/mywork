@@ -1,0 +1,227 @@
+pipeline {
+    agent {
+        kubernetes {
+            defaultContainer 'docker'
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: jenkins
+  containers:
+    - name: docker
+      image: twnsnd2team/docker:v2
+      resources:
+        limits:
+          memory: "256Mi"
+          cpu: "200m"
+      command:
+        - sleep
+        - "1d"
+      volumeMounts:
+        - name: dockersock
+          mountPath: /var/run/docker.sock
+          readOnly: false
+  volumes:
+    - name: dockersock
+      hostPath:
+        path: /var/run/docker.sock
+    - name: kubeconfig
+      secret:
+        secretName: jenkins-agent
+                """
+        }
+    }
+   environment {
+    APP_ENV = 'finance-dev'
+    IMAGE_BASE = 'freenance/postgres-slave'
+    IMAGE_TAG = "v$BUILD_NUMBER"
+    IMAGE_NAME = "${env.IMAGE_BASE}"
+    IMAGE_NAME_LATEST = "${env.IMAGE_BASE}:latest"
+    DOCKERFILE_NAME = "Dockerfile"
+    NAMESPACE = 'finance-dev'
+    }
+    options {
+        timeout(time: 10, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+    
+    stages {
+        stage('Delete workspace before build starts') {
+            steps {
+                echo 'Deleting workspace'
+                deleteDir()
+            }
+        }
+           stage('Create postgres-script') {
+            steps {
+                script {
+                    writeFile file: 'postgresSlave.sh', text: '''
+if [ "$(ls -A /var/lib/postgresql/data)" ]; then
+   echo "not empty";
+else
+   pg_basebackup -P -R -X stream -c fast -h $PG_MASTER_HOST -U $PG_REP_USER -D /var/lib/postgresql/data --no-password;
+fi
+if [ "$(ls -A /var/lib/postgresql/data/standby.signal)" ]; then
+   echo "replica";
+else
+   rm -r /var/lib/postgresql/data/*;
+   pg_basebackup -P -R -X stream -c fast -h $PG_MASTER_HOST -U $PG_REP_USER -D /var/lib/postgresql/data --no-password;
+fi
+                    '''
+                }
+                sh "cat postgresSlave.sh"
+            }
+    }
+        stage('Create dockerfile') {
+            steps {
+                script {
+                    writeFile file: 'Dockerfile', text: """
+                    FROM postgres:16
+                    COPY ./postgresSlave.sh /docker-entrypoint-initdb.d/postgresSlave.sh
+                    RUN chmod 0777 /docker-entrypoint-initdb.d/postgresSlave.sh
+                    """
+                }
+                    sh "cat Dockerfile"
+            }
+        }
+        stage('Create deployment') {
+            steps {
+                script {
+                    writeFile file: 'postgres-slave-manifest.yaml', text: """
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  namespace: {{NAMESPACE}}
+  name: postgresdb-pv-slave-{{NAMESPACE}}
+  labels:
+    type: local
+    app: postgresdb-slave-{{NAMESPACE}}
+spec:
+  storageClassName: local-storage
+  capacity:
+    storage: 130Mi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/data/db/{{NAMESPACE}}/slave/"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  namespace: {{NAMESPACE}}
+  name: postgresdb-pvc-slave-{{NAMESPACE}}
+spec:
+  storageClassName: local-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 130Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: {{NAMESPACE}}
+  name: postgresdb-slave
+  labels:
+    app: postgresdb-slave-{{NAMESPACE}}
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: postgresdb-slave-{{NAMESPACE}}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgresdb-slave
+  namespace: {{NAMESPACE}}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgresdb-slave-{{NAMESPACE}}
+  serviceName: postgresdb-headless
+  template:
+    metadata:
+      labels:
+        app: postgresdb-slave-{{NAMESPACE}}
+      annotations:
+        fluentd.active: 'true'
+    spec:
+      containers:
+      - name: postgresdb-slave
+        image: freenance/postgres-slave:{{IMAGE_TAG}}
+        env:
+          - name: TZ
+            value: "UTC-3"
+          - name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgresql-secret-dev
+                key: POSTGRES_PASSWORD
+          - name: POSTGRES_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgresql-secret-dev
+                key: POSTGRES_USER
+          - name: POSTGRES_DB
+            valueFrom:
+              secretKeyRef:
+                name: postgresql-secret-dev
+                key: POSTGRES_DB
+          - name: PG_REP_USER
+            valueFrom:
+              secretKeyRef:
+                name: postgresql-secret-dev
+                key: PG_REP_USER
+          - name: PG_MASTER_HOST
+            valueFrom:
+              secretKeyRef:
+                name: postgresql-secret-dev
+                key: PG_MASTER_HOST
+        volumeMounts:
+        - name: postgresdb-data
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            memory: "145Mi"
+            cpu: "25m"
+          limits:
+            memory: "180Mi"
+            cpu: "160m"
+      volumes:
+        - name: postgresdb-data
+          persistentVolumeClaim:
+            claimName: postgresdb-pvc-slave-{{NAMESPACE}}
+                    """
+                }
+                sh "cat postgres-slave-manifest.yaml"
+            }
+    }
+        stage('build & push image') {
+            steps {
+                script {
+                def dockerImage = docker.build("${env.IMAGE_NAME}:${IMAGE_TAG}","-f ${env.DOCKERFILE_NAME} .")
+                    docker.withRegistry('', 'docker-hub-freenance') {
+                    dockerImage.push()
+                    }     
+                echo "Pushed Docker Image: ${env.IMAGE_NAME}:${IMAGE_TAG}"
+                }
+                  sh "docker rmi ${env.IMAGE_NAME}:${IMAGE_TAG}"
+            }
+        }
+        stage('Deploy to Kubernetes') {
+            steps {
+                withKubeConfig([credentialsId: 'kubernetes-jenkins']) {
+                    sh "sed -i 's/{{NAMESPACE}}/${NAMESPACE}/g' postgres-slave-manifest.yaml"
+                    sh "sed -i 's/{{IMAGE_TAG}}/${IMAGE_TAG}/g' postgres-slave-manifest.yaml"
+                    sh "cat postgres-slave-manifest.yaml"
+                    sh 'kubectl apply -f postgres-slave-manifest.yaml'
+                }
+            }
+        }
+    }
+} 

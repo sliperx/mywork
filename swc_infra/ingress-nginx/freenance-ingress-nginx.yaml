@@ -1,0 +1,48 @@
+spec:
+  tls:
+  - hosts:
+    - dev.freenance.store
+    - dev.freenance.online
+    secretName: freenance-dev-ingress
+  rules:
+  - host: dev.freenance.store
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: finance-frontend-dev
+            port:
+              number: 3000
+      - path: /api/
+        pathType: Prefix
+        backend:
+          service:
+            name: freenance-backend-service-dev
+            port:
+              number: 8000
+      - path: /static/
+        pathType: Prefix
+        backend:
+          service:
+            name: freenance-backend-service-dev
+            port:
+              number: 8000
+  - host: dev.freenance.online
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: finance-frontend-dev
+            port:
+              number: 3000
+      - path: /api/
+        pathType: Prefix
+        backend:
+          service:
+            name: freenance-backend-service-dev
+            port:
+              number: 8000

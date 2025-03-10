@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-service
+  namespace: finance-dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: celery-service
+  template:
+    metadata:
+      labels:
+        app: celery-service
+    spec:
+      containers:
+        - name: celery
+          image: freenance
+          ports:
+            - containerPort: 6379
+          resources:
+            limits:
+              cpu: 100m
+              memory: 300Mi
+            requests:
+              cpu: 50m
+              memory: 100Mi
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: celery-service
+  namespace: finance-dev
+spec:
+  ports:
+    - protocol: TCP
+      port: 6379
+      targetPort: 6379
+  selector:
+    app: celery-service
+  type: ClusterIP
