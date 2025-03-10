@@ -1,0 +1,205 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  namespace: infra
+  name: gpg-passbolt-infra
+  labels:
+    type: local
+    app: gpg-passbolt-infra
+spec:
+  storageClassName: local-storage
+  capacity:
+    storage: 500Mi
+  accessModes:
+  - ReadWriteOnce
+  hostPath:
+    path: "/data/passbolt/gpg/"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  namespace: infra
+  name: gpg-passbolt-pvc-infra
+spec:
+  storageClassName: local-storage
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  namespace: infra
+  name: jwt-passbolt-infra
+  labels:
+    type: local
+    app: jwt-passbolt-infra
+spec:
+  storageClassName: local-storage
+  capacity:
+    storage: 500Mi
+  accessModes:
+  - ReadWriteOnce
+  hostPath:
+    path: "/data/passbolt/jwt/"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  namespace: infra
+  name: jwt-passbolt-pvc-infra
+spec:
+  storageClassName: local-storage
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  namespace: infra
+  name: data-passbolt
+  labels:
+    type: local
+    app: data-passbolt-infra
+spec:
+  storageClassName: local-storage
+  capacity:
+    storage: 500Mi
+  accessModes:
+  - ReadWriteOnce
+  hostPath:
+    path: "/data/passbolt/data/"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  namespace: infra
+  name: data-passbolt-pvc-infra
+spec:
+  storageClassName: local-storage
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: infra
+  name: passbolt-infra
+  labels:
+    app: passbolt-infra
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+  - name: https
+    port: 443
+    targetPort: 443
+  selector:
+    app: passbolt-infra
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: passbolt-infra
+  namespace: infra
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: passbolt-infra
+  template:
+    metadata:
+      labels:
+        app: passbolt-infra
+    spec:
+      containers:
+      - name: passbolt-infra
+        image: passbolt/passbolt:4.11.1-1-ce
+        ports:
+        - containerPort: 80
+        - containerPort: 443
+        resources:
+          limits:
+            cpu: "4"
+            memory: 300Mi
+          requests:
+            cpu: "2"
+            memory: 100Mi
+        command:
+        - "/bin/sh"
+        - "-c"
+        - "/usr/bin/wait-for.sh -t 0 ${DATASOURCES_DEFAULT_HOST}:3306 -- /docker-entrypoint.sh"
+        env:
+        - name: APP_FULL_BASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: passbolt-secret-infra
+              key: APP_FULL_BASE_URL
+        - name: DATASOURCES_DEFAULT_HOST
+          valueFrom:
+            secretKeyRef:
+              name: passbolt-secret-infra
+              key: DATASOURCES_DEFAULT_HOST
+        - name: DATASOURCES_DEFAULT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: passbolt-secret-infra
+              key: DATASOURCES_DEFAULT_USERNAME
+        - name: DATASOURCES_DEFAULT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: passbolt-secret-infra
+              key: DATASOURCES_DEFAULT_PASSWORD
+        - name: DATASOURCES_DEFAULT_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: passbolt-secret-infra
+              key: DATASOURCES_DEFAULT_DATABASE
+        - name: EMAIL_DEFAULT_FROM
+          valueFrom:
+            secretKeyRef:
+              name: passbolt-secret-infra
+              key: EMAIL_DEFAULT_FROM
+        - name: EMAIL_DEFAULT_FROM_NAME
+          valueFrom:
+            secretKeyRef:
+              name: passbolt-secret-infra
+              key: EMAIL_DEFAULT_FROM_NAME
+        - name: EMAIL_TRANSPORT_DEFAULT_HOST
+          valueFrom:
+            secretKeyRef:
+              name: passbolt-secret-infra
+              key: EMAIL_TRANSPORT_DEFAULT_HOST
+        - name: EMAIL_TRANSPORT_DEFAULT_PORT
+          valueFrom:
+            secretKeyRef:
+              name: passbolt-secret-infra
+              key: EMAIL_TRANSPORT_DEFAULT_PORT
+        - name: EMAIL_TRANSPORT_DEFAULT_TLS
+          valueFrom:
+            secretKeyRef:
+              name: passbolt-secret-infra
+              key: EMAIL_TRANSPORT_DEFAULT_TLS
+        volumeMounts:
+        - name: gpg-passbolt-data
+          mountPath: /etc/passbolt/gpg
+        - name: jwt-passbolt-data
+          mountPath: /etc/passbolt/jwt
+      volumes:
+      - name: gpg-passbolt-data
+        persistentVolumeClaim:
+          claimName: gpg-passbolt-pvc-infra
+      - name: jwt-passbolt-data
+        persistentVolumeClaim:
+          claimName: jwt-passbolt-pvc-infra
+      restartPolicy: Always

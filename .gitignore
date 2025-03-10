@@ -1,0 +1,3 @@
+manifest-secret-passbolt.yaml
+manifest-secret-mariadb.yaml
+passbolt-ingress-secret.yaml
