@@ -1,0 +1,258 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: prometheus
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 1m
+      http_config:
+        follow_redirects: true
+
+    route:
+      receiver: default-receiver
+      group_by: ['stage']
+      group_wait: 5s
+      group_interval: 1s
+      repeat_interval: 480m
+
+      routes:
+        - match:
+            stage: 'backend-prod'
+          receiver: 'telegram-notifications-backend-prod'
+          continue: true
+        - match:
+            stage: 'backend-qa'
+          receiver: 'telegram-notifications-backend-qa'
+          continue: true
+        - match:
+            stage: 'backend-dev'
+          receiver: 'telegram-notifications-backend-dev'
+          continue: true
+        - match: 
+            stage: 'frontend-dev'
+          receiver: 'telegram-notifications-frontend-dev'
+          continue: true
+        - match: 
+            stage: 'frontend-qa'
+          receiver: 'telegram-notifications-frontend-qa'
+          continue: true
+        - match: 
+            stage: 'frontend-prod'
+          receiver: 'telegram-notifications-frontend-prod'
+          continue: true
+
+    receivers:
+      - name: 'telegram-notifications-backend-prod'
+        telegram_configs:
+          - send_resolved: true
+            api_url: https://api.telegram.org
+            bot_token: '7572981565:AAHzH6UurLiITUEdhodoxy6FIj13wkzchL0'
+            chat_id: -1002669241942
+            parse_mode: Markdown
+            message: |
+              {{ if eq .Status "resolved" }}
+              ✅✅✅ RESOLVED: backend unavailable {{ (index .Alerts 0).Labels.instance }}
+              endpoint: {{ (index .Alerts 0).Labels.instance }}
+              Problem name: {{ (index .Alerts 0).Labels.alertname }}
+              stage: {{ (index .Alerts 0).Labels.stage }}
+              Resolved at: {{ (index .Alerts 0).EndsAt }}
+              {{ else }}
+              🔥🔥🔥 PROBLEM: backend unavailable {{ (index .Alerts 0).Labels.instance }}
+              Problem start: {{ (index .Alerts 0).StartsAt }}
+              endpoint: {{ (index .Alerts 0).Labels.instance }} is down
+              Problem name: {{ (index .Alerts 0).Labels.alertname }}
+              severity: {{ (index .Alerts 0).Labels.severity }}
+              stage: {{ (index .Alerts 0).Labels.stage }}
+              {{ (index .Alerts 0).Annotations.description }}
+              Alert ID: {{ (index .Alerts 0).Fingerprint }}
+              {{ end }}
+
+      - name: 'telegram-notifications-backend-qa'
+        telegram_configs:
+          - send_resolved: true
+            api_url: https://api.telegram.org
+            bot_token: '7572981565:AAHzH6UurLiITUEdhodoxy6FIj13wkzchL0'
+            chat_id: -1002669241942
+            parse_mode: Markdown
+            message: |
+              {{ if eq .Status "resolved" }}
+              ✅✅✅ RESOLVED: backend unavailable {{ (index .Alerts 0).Labels.instance }}
+              endpoint: {{ (index .Alerts 0).Labels.instance }}
+              Problem name: {{ (index .Alerts 0).Labels.alertname }}
+              stage: {{ (index .Alerts 0).Labels.stage }}
+              Resolved at: {{ (index .Alerts 0).EndsAt }}
+              {{ else }}
+              🔥🔥🔥 PROBLEM: backend unavailable {{ (index .Alerts 0).Labels.instance }}
+              Problem start: {{ (index .Alerts 0).StartsAt }}
+              endpoint: {{ (index .Alerts 0).Labels.instance }} is down
+              Problem name: {{ (index .Alerts 0).Labels.alertname }}
+              severity: {{ (index .Alerts 0).Labels.severity }}
+              stage: {{ (index .Alerts 0).Labels.stage }}
+              {{ (index .Alerts 0).Annotations.description }}
+              Alert ID: {{ (index .Alerts 0).Fingerprint }}
+              {{ end }}
+
+      - name: 'telegram-notifications-backend-dev'
+        telegram_configs:
+          - send_resolved: true
+            api_url: https://api.telegram.org
+            bot_token: '7572981565:AAHzH6UurLiITUEdhodoxy6FIj13wkzchL0'
+            chat_id: -1002669241942
+            parse_mode: Markdown
+            message: |
+              {{ if eq .Status "resolved" }}
+              ✅✅✅ RESOLVED: backend unavailable {{ (index .Alerts 0).Labels.instance }}
+              endpoint: {{ (index .Alerts 0).Labels.instance }}
+              Problem name: {{ (index .Alerts 0).Labels.alertname }}
+              stage: {{ (index .Alerts 0).Labels.stage }}
+              Resolved at: {{ (index .Alerts 0).EndsAt }}
+              {{ else }}
+              🔥🔥🔥 PROBLEM: backend unavailable {{ (index .Alerts 0).Labels.instance }}
+              Problem start: {{ (index .Alerts 0).StartsAt }}
+              endpoint: {{ (index .Alerts 0).Labels.instance }} is down
+              Problem name: {{ (index .Alerts 0).Labels.alertname }}
+              severity: {{ (index .Alerts 0).Labels.severity }}
+              stage: {{ (index .Alerts 0).Labels.stage }}
+              {{ (index .Alerts 0).Annotations.description }}
+              Alert ID: {{ (index .Alerts 0).Fingerprint }}
+              {{ end }}
+
+      - name: 'telegram-notifications-frontend-dev'
+        telegram_configs:
+          - send_resolved: true
+            api_url: https://api.telegram.org
+            bot_token: '7572981565:AAHzH6UurLiITUEdhodoxy6FIj13wkzchL0'
+            chat_id: -1002669241942
+            parse_mode: Markdown
+            message: |
+              {{ if eq .Status "resolved" }}
+              ✅✅✅ RESOLVED: frontend unavailable {{ (index .Alerts 0).Labels.instance }}
+              endpoint: {{ (index .Alerts 0).Labels.instance }}
+              Problem name: {{ (index .Alerts 0).Labels.alertname }}
+              stage: {{ (index .Alerts 0).Labels.stage }}
+              Resolved at: {{ (index .Alerts 0).EndsAt }}
+              {{ else }}
+              🔥🔥🔥 PROBLEM: frontend unavailable {{ (index .Alerts 0).Labels.instance }}
+              Problem start: {{ (index .Alerts 0).StartsAt }}
+              endpoint: {{ (index .Alerts 0).Labels.instance }} is down
+              Problem name: {{ (index .Alerts 0).Labels.alertname }}
+              severity: {{ (index .Alerts 0).Labels.severity }}
+              stage: {{ (index .Alerts 0).Labels.stage }}
+              {{ (index .Alerts 0).Annotations.description }}
+              Alert ID: {{ (index .Alerts 0).Fingerprint }}
+              {{ end }}
+
+      - name: 'telegram-notifications-frontend-prod'
+        telegram_configs:
+          - send_resolved: true
+            api_url: https://api.telegram.org
+            bot_token: '7572981565:AAHzH6UurLiITUEdhodoxy6FIj13wkzchL0'
+            chat_id: -1002669241942
+            parse_mode: Markdown
+            message: |
+              {{ if eq .Status "resolved" }}
+              ✅✅✅ RESOLVED: frontend unavailable {{ (index .Alerts 0).Labels.instance }}
+              endpoint: {{ (index .Alerts 0).Labels.instance }}
+              Problem name: {{ (index .Alerts 0).Labels.alertname }}
+              stage: {{ (index .Alerts 0).Labels.stage }}
+              Resolved at: {{ (index .Alerts 0).EndsAt }}
+              {{ else }}
+              🔥🔥🔥 PROBLEM: frontend unavailable {{ (index .Alerts 0).Labels.instance }}
+              Problem start: {{ (index .Alerts 0).StartsAt }}
+              endpoint: {{ (index .Alerts 0).Labels.instance }} is down
+              Problem name: {{ (index .Alerts 0).Labels.alertname }}
+              severity: {{ (index .Alerts 0).Labels.severity }}
+              stage: {{ (index .Alerts 0).Labels.stage }}
+              {{ (index .Alerts 0).Annotations.description }}
+              Alert ID: {{ (index .Alerts 0).Fingerprint }}
+              {{ end }}
+
+      - name: 'telegram-notifications-frontend-qa'
+        telegram_configs:
+          - send_resolved: true
+            api_url: https://api.telegram.org
+            bot_token: '7572981565:AAHzH6UurLiITUEdhodoxy6FIj13wkzchL0'
+            chat_id: -1002669241942
+            parse_mode: Markdown
+            message: |
+              {{ if eq .Status "resolved" }}
+              ✅✅✅ RESOLVED: frontend unavailable {{ (index .Alerts 0).Labels.instance }}
+              endpoint: {{ (index .Alerts 0).Labels.instance }}
+              Problem name: {{ (index .Alerts 0).Labels.alertname }}
+              stage: {{ (index .Alerts 0).Labels.stage }}
+              Resolved at: {{ (index .Alerts 0).EndsAt }}
+              {{ else }}
+              🔥🔥🔥 PROBLEM: frontend unavailable {{ (index .Alerts 0).Labels.instance }}
+              Problem start: {{ (index .Alerts 0).StartsAt }}
+              endpoint: {{ (index .Alerts 0).Labels.instance }} is down
+              Problem name: {{ (index .Alerts 0).Labels.alertname }}
+              severity: {{ (index .Alerts 0).Labels.severity }}
+              stage: {{ (index .Alerts 0).Labels.stage }}
+              {{ (index .Alerts 0).Annotations.description }}
+              Alert ID: {{ (index .Alerts 0).Fingerprint }}
+              {{ end }}
+
+      - name: 'default-receiver'
+        email_configs: []
+
+    inhibit_rules:
+      - source_match:
+          alertname: 'Watchdog'
+        target_match:
+          alertname: 'NodeDown'
+        equal: ['job']
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      containers:
+      - name: alertmanager
+        image: prom/alertmanager:v0.28.1
+        env:
+        - name: TZ
+          value: UTC-3
+        args:
+        - "--config.file=/etc/alertmanager/alertmanager.yml"
+        ports:
+        - containerPort: 9093
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/alertmanager/alertmanager.yml
+          subPath: alertmanager.yml
+        resources:
+          requests:
+            memory: "20Mi"
+            cpu: "25m"
+          limits:
+            memory: "25Mi"
+            cpu: "50m"
+      volumes:
+      - name: config-volume
+        configMap:
+          name: alertmanager-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager-service
+  namespace: prometheus
+spec:
+  ports:
+  - port: 9093
+    targetPort: 9093
+  selector:
+    app: alertmanager

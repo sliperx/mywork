@@ -1,0 +1,98 @@
+pipeline {
+    agent {
+        kubernetes {
+            defaultContainer 'docker'
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: jenkins
+  containers:
+    - name: docker
+      image: twnsnd2team/docker:v2
+      resources:
+        limits:
+          memory: "256Mi"
+          cpu: "200m"
+      command:
+        - sleep
+        - "1d"
+      volumeMounts:
+        - name: dockersock
+          mountPath: /var/run/docker.sock
+          readOnly: false
+  volumes:
+    - name: dockersock
+      hostPath:
+        path: /var/run/docker.sock
+    - name: kubeconfig
+      secret:
+        secretName: jenkins-agent
+                """
+        }
+    }
+   environment {
+    APP_ENV = 'develop'
+    IMAGE_BASE = 'freenance/info'
+    IMAGE_TAG = "v$BUILD_NUMBER"
+    IMAGE_NAME = "${env.IMAGE_BASE}"
+    IMAGE_NAME_LATEST = "${env.IMAGE_BASE}:latest"
+    HOST = "https://info.freenance.online"
+    DOCKERFILE_NAME = "Dockerfile"
+    }
+    options {
+        timeout(time: 10, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+    stages {
+        stage('Delete workspace before build starts') {
+            steps {
+                echo 'Deleting workspace'
+                deleteDir()
+            }
+        }
+        stage('Env print') {
+            steps {
+                sh '''
+                    echo Selected Type of checkout: $TYPE
+                    echo Selected Branch name: $BRANCH
+                    echo Selected Tag name: $TAG
+                    echo Selected Branch or Tag name: $BRANCH_and_TAG
+                    echo Selected Revision name: $REVISION
+                    echo Selected Pull request name: $PULL_REQUESTS
+                '''
+            }
+        }
+        stage('Checkout') {
+            steps {
+                git branch: 'main', credentialsId: 'git_freenance', url: 'git@github.com:PineappleIncTeam/infopage.git'
+                script {
+                    commitId = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    currentBuild.description = "${commitId}"
+                    echo "${commitId}"
+                }
+            }
+        }
+        stage ('build image') {
+            steps {
+                script {
+                    def dockerImage = docker.build("${env.IMAGE_NAME}:${commitId}", "-f ${env.DOCKERFILE_NAME} .")
+                    docker.withRegistry('', 'docker-hub-freenance') {
+                    dockerImage.push()
+                    dockerImage.push("${commitId}")
+                    }
+                echo "Pushed Docker Image: ${env.IMAGE_NAME}:${commitId}"
+                }
+                sh "docker rmi ${env.IMAGE_NAME}:${commitId}"
+            }
+        }
+         stage('Deploy to Kubernetes') {
+            steps {
+                withKubeConfig([credentialsId: 'kubernetes-jenkins']) {
+                    sh "sed -i 's/{{IMAGE_TAG}}/${commitId}/g' infoPageDeploymentProd.yaml"
+                    sh 'kubectl apply -f infoPageDeploymentProd.yaml'
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,159 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: prometheus
+  name: blackbox-exporter
+  labels:
+    app: blackbox-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: blackbox-exporter
+  template:
+    metadata:
+      labels:
+        app: blackbox-exporter
+    spec:
+      containers:
+      - name: blackbox-exporter
+        image: prom/blackbox-exporter:v0.26.0
+        args:
+        - "--config.file=/etc/blackbox_exporter/blackbox.yml"
+        - --log.level=debug
+        ports:
+        - containerPort: 9115
+        volumeMounts:
+        - name: config
+          mountPath: /etc/blackbox_exporter
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "100m"
+            memory: "128Mi"
+      volumes:
+      - name: config
+        configMap:
+          name: blackbox-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: prometheus
+  name: blackbox-exporter
+  labels:
+    app: blackbox-exporter
+spec:
+  ports:
+  - port: 9115
+    targetPort: 9115
+    name: web
+  selector:
+    app: blackbox-exporter
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: prometheus
+  name: blackbox-config
+  labels:
+    app: blackbox-exporter
+data:
+  blackbox.yml: |
+    modules:
+      http_2xx_backend_dev:
+        prober: http
+        timeout: 5s
+        http:
+          valid_status_codes: [200]
+          fail_if_body_not_matches_regexp: []  
+          fail_if_header_not_matches:
+            - header: "Content-Type"
+              regexp: "application/json"  
+          method: GET
+          headers:
+            User-Agent: Blackbox-Exporter
+          body: ""
+          follow_redirects: true
+          fail_if_ssl: false  
+          fail_if_not_ssl: false
+
+      http_2xx_backend_qa:
+        prober: http
+        timeout: 5s
+        http:
+          valid_status_codes: [200]
+          fail_if_body_not_matches_regexp: []  
+          fail_if_header_not_matches:
+            - header: "Content-Type"
+              regexp: "application/json"  
+          method: GET
+          headers:
+            User-Agent: Blackbox-Exporter
+          body: ""
+          follow_redirects: true
+          fail_if_ssl: false  
+          fail_if_not_ssl: false    
+
+
+      http_2xx_backend_prod:
+        prober: http
+        timeout: 5s
+        http:
+          valid_status_codes: [200]
+          fail_if_body_not_matches_regexp: []  
+          method: POST
+          headers:
+            Content-type: application/json
+          body: '{}'
+          preferred_ip_protocol: "ip4"
+          follow_redirects: true
+          fail_if_ssl: false  
+          fail_if_not_ssl: false
+
+      http_2xx_frontend_dev:
+        prober: http
+        timeout: 5s
+        http:
+          valid_status_codes: [200]
+          fail_if_body_not_matches_regexp: []  
+          fail_if_header_not_matches: []  
+          method: GET
+          headers:
+            User-Agent: Blackbox-Exporter
+          body: ""
+          follow_redirects: true
+          fail_if_ssl: false  
+          fail_if_not_ssl: false
+
+      http_2xx_frontend_prod:
+        prober: http
+        timeout: 5s
+        http:
+          valid_status_codes: [200]
+          fail_if_body_not_matches_regexp: []  
+          fail_if_header_not_matches: []
+          method: GET
+          headers:
+            User-Agent: Blackbox-Exporter
+          body: ""
+          follow_redirects: true
+          fail_if_ssl: false  
+          fail_if_not_ssl: false  
+
+      http_2xx_frontend_qa:
+        prober: http
+        timeout: 5s
+        http:
+          valid_status_codes: [200]
+          fail_if_body_not_matches_regexp: []  
+          fail_if_header_not_matches: []
+          method: GET
+          headers:
+            User-Agent: Blackbox-Exporter
+          body: ""
+          follow_redirects: true
+          fail_if_ssl: false  
+          fail_if_not_ssl: false      

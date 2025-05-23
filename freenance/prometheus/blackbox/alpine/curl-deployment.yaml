@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: curl-debug
+  namespace: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: curl-debug
+  template:
+    metadata:
+      labels:
+        app: curl-debug
+    spec:
+      containers:
+      - name: curl
+        image: alpine/curl
+        command: [ "sh", "-c", "sleep infinity" ]
+        tty: true
+        stdin: true
+        resources:
+          requests:
+            cpu: "25m"
+            memory: "32Mi"
+          limits:
+            cpu: "50m"
+            memory: "64Mi"

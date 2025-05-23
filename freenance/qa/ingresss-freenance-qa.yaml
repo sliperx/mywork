@@ -1,0 +1,56 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: freenance-qa-ingress
+  namespace: finance-qa
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+  - hosts:
+    - qa.freenance.store
+    - qa.freenance.online
+    secretName: freenance-qa-ingress
+  rules:
+  - host: qa.freenance.store
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: finance-frontend-service-qa
+            port:
+              number: 3000
+      - path: /api/
+        pathType: Prefix
+        backend:
+          service:
+            name: freenance-backend-service-qa
+            port:
+              number: 8000
+      - path: /static/
+        pathType: Prefix
+        backend:
+          service:
+            name: freenance-backend-service-qa
+            port:
+              number: 8000
+  - host: qa.freenance.online
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: finance-frontend-qa
+            port:
+              number: 3000
+      - path: /api/
+        pathType: Prefix
+        backend:
+          service:
+            name: freenance-backend-service-qa
+            port:
+              number: 8000

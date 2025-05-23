@@ -1,0 +1,350 @@
+pipeline {
+    agent {
+        kubernetes {
+            defaultContainer 'docker'
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  serviceAccountName: jenkins
+  containers:
+    - name: docker
+      image: twnsnd2team/docker:v2
+      resources:
+        limits:
+          memory: "256Mi"
+          cpu: "200m"
+      command:
+        - sleep
+        - "1d"
+      volumeMounts:
+        - name: dockersock
+          mountPath: /var/run/docker.sock
+          readOnly: false
+  volumes:
+    - name: dockersock
+      hostPath:
+        path: /var/run/docker.sock
+    - name: kubeconfig
+      secret:
+        secretName: jenkins-agent
+            """
+        }
+    }
+    environment {
+        APP_ENV = 'qa'
+        IMAGE_BASE = 'freenance/frontend-qa'
+        IMAGE_TAG = "v$BUILD_NUMBER"
+        IMAGE_NAME = "${env.IMAGE_BASE}:${commitId}"
+        IMAGE_NAME_LATEST = "${env.IMAGE_BASE}:latest"
+        HOST = "https://qa.freenance.online"
+        DOCKERFILE_NAME = "Dockerfile-new"
+        DOCKER_REGISTRY = 'freenance'
+        KUBECONFIG = credentials('kubernetes-jenkins')
+        NAMESPACE = 'finance-qa'
+        K8S_DEPLOYMENT_NAME = 'finance-service'
+        APP_LABEL = 'finance-frontend-qa'
+    }
+    options {
+        timeout(time: 10, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+    parameters {
+        choice(choices: ['BRANCH', 'REVISION', 'PULL_REQUESTS'], description: '', name: 'TYPE')
+        gitParameter(
+            branch: '', 
+            branchFilter: '.*', 
+            defaultValue: 'dev', 
+            description: '', 
+            name: 'BRANCH',
+            listSize: '10',
+            quickFilterEnabled: true, 
+            selectedValue: 'NONE', 
+            sortMode: 'NONE', 
+            tagFilter: '*', 
+            type: 'PT_BRANCH', 
+            useRepository: 'https://github.com/PineappleIncTeam/Finance_frontend.git'
+        )
+        gitParameter(
+            branch: '', 
+            branchFilter: '.*', 
+            defaultValue: 'dev', 
+            description: '', 
+            name: 'REVISION',
+            listSize: '15',
+            quickFilterEnabled: true, 
+            selectedValue: 'NONE', 
+            sortMode: 'NONE', 
+            tagFilter: '*', 
+            type: 'PT_REVISION', 
+            useRepository: 'https://github.com/PineappleIncTeam/Finance_frontend.git'
+        )
+        gitParameter(
+            branch: '', 
+            branchFilter: '.*', 
+            defaultValue: 'dev', 
+            description: '', 
+            name: 'PULL_REQUESTS',
+            listSize: '10',
+            quickFilterEnabled: true, 
+            selectedValue: 'NONE', 
+            sortMode: 'NONE', 
+            tagFilter: '*', 
+            type: 'PT_PULL_REQUEST', 
+            useRepository: 'https://github.com/PineappleIncTeam/Finance_frontend.git'
+        )
+    }
+    stages {
+        stage('Delete workspace before build starts') {
+            steps {
+                echo 'Deleting workspace'
+                deleteDir()
+            }
+        }
+        stage('Env print') {
+            steps {
+                sh '''
+                    echo Selected Type of checkout: $TYPE
+                    echo Selected Branch name: $BRANCH
+                    echo Selected Tag name: $TAG
+                    echo Selected Branch or Tag name: $BRANCH_and_TAG
+                    echo Selected Revision name: $REVISION
+                    echo Selected Pull request name: $PULL_REQUESTS
+                '''
+            }
+        }
+        stage('Checkout') {
+            parallel {
+                stage('BRANCH') {
+                    when {
+                        expression { params.TYPE == 'BRANCH' }
+                    } 
+                    steps {
+                        checkout(
+                            [$class: 'GitSCM', 
+                            branches: [[name: "${params.BRANCH}"]], 
+                            doGenerateSubmoduleConfigurations: false, 
+                            extensions: [],
+                            submoduleCfg: [], 
+                            userRemoteConfigs: [[
+                                credentialsId: 'git_freenance', 
+                                url: 'https://github.com/PineappleIncTeam/Finance_frontend.git'
+                            ]]]
+                        )
+                        script {
+                            commitId = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                            currentBuild.description = "${commitId}"
+                            echo "${commitId}"
+                        }
+                    }
+                }
+                stage('REVISION') {
+                    when {
+                        expression { params.TYPE == 'REVISION' }
+                    } 
+                    steps {
+                        checkout(
+                            [$class: 'GitSCM', 
+                            branches: [[name: "${params.REVISION}"]], 
+                            doGenerateSubmoduleConfigurations: false, 
+                            extensions: [],
+                            submoduleCfg: [], 
+                            userRemoteConfigs: [[
+                                credentialsId: 'git_freenance',
+                                url: 'https://github.com/PineappleIncTeam/Finance_frontend.git'
+                            ]]]
+                        )
+                        script {
+                            commitId = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                            currentBuild.description = "${commitId}"
+                            echo "${commitId}"
+                        }
+                    }
+                }
+                stage('PULL_REQUESTS') {
+                    when {
+                        expression { params.TYPE == 'PULL_REQUESTS' }
+                    } 
+                    steps {
+                        checkout(
+                            [$class: 'GitSCM', 
+                            branches: [[name: "pr/${params.PULL_REQUESTS}/head"]], 
+                            doGenerateSubmoduleConfigurations: false, 
+                            extensions: [],
+                            submoduleCfg: [], 
+                            userRemoteConfigs: [[
+                                credentialsId: 'git_freenance', 
+                                refspec: '+refs/pull/*:refs/remotes/origin/pr/*',
+                                url: 'https://github.com/PineappleIncTeam/Finance_frontend.git'
+                            ]]]
+                        )
+                        script {
+                            commitId = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                            currentBuild.description = "${commitId}"
+                            echo "${commitId}"
+                        }
+                    }
+                }
+            }
+        }
+        stage('Add Dockerfile') {
+            steps {
+                script {
+                    def envContent = """
+FROM node:20-alpine AS builder
+WORKDIR /app
+RUN npm install --global pm2
+COPY package.json package-lock.json ./
+RUN npm install --legacy-peer-deps
+COPY . .
+RUN npm run build
+
+FROM node:20-alpine AS production
+WORKDIR /app
+RUN npm install --global pm2
+COPY --from=builder /app .
+EXPOSE 3000
+USER node
+CMD ["pm2-runtime", "npm", "--", "start"]
+
+                    """
+                    writeFile file: 'Dockerfile-new', text: envContent
+                }
+            }
+        }
+        stage('Add nginx.conf') {
+    steps {
+        script {
+            def envContent = """
+server {
+  listen 80;
+
+  location / {
+    root /usr/share/nginx/html/;
+    include /etc/nginx/mime.types;
+    try_files \$uri \$uri/ /index.html;
+  }
+}
+            """
+            writeFile file: 'nginx.conf', text: envContent
+        }
+    }
+}
+
+        stage('Add Manifest') {
+            steps {
+                script {
+                    def envContent = """
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: {{NAMESPACE}}
+  name: finance-frontend-service-qa
+spec:
+  selector:
+    app: finance-frontend-qa
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: {{NAMESPACE}}
+  name: finance-frontend-qa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: finance-frontend-qa
+  template:
+    metadata:
+      labels:
+        app: finance-frontend-qa
+      annotations:
+        fluentd.active: 'true'
+    spec:
+      containers:
+        - name: frontend
+          image: freenance/frontend-qa:{{IMAGE_TAG}}
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "150m"
+          ports:
+            - containerPort: 3000
+                    """
+                    writeFile file: 'Deployment.yaml', text: envContent
+                }
+            }
+        }
+        stage('Build & Push images') {
+            steps {
+                script {
+                    def dockerImage = docker.build("${env.IMAGE_NAME}", "-f ${env.DOCKERFILE_NAME} .")
+                    docker.withRegistry('', 'docker-hub-freenance') {
+                        dockerImage.push()
+                        dockerImage.push("${commitId}")
+                    }
+                    echo "Pushed Docker Image: ${env.IMAGE_NAME}"
+                }
+                sh "docker rmi ${env.IMAGE_NAME}"
+            }
+        }
+        stage('Deploy to Kubernetes') {
+            steps {
+                withKubeConfig([credentialsId: 'kubernetes-jenkins']) {
+                    sh "sed -i 's/{{NAMESPACE}}/${NAMESPACE}/g' Deployment.yaml"
+                    sh "sed -i 's/{{IMAGE_TAG}}/${commitId}/g' Deployment.yaml"
+                    sh 'kubectl apply -f Deployment.yaml'
+                }
+            }
+        }
+                stage('Wait for Pod to be Running') {
+            steps {
+                withKubeConfig([credentialsId: 'kubernetes-jenkins']) {
+                    sh '''
+                       echo " Waiting for container creating..."
+                        for i in $(seq 1 20); do
+                          con_create=$(kubectl get pods -n ${NAMESPACE} -l app=${APP_LABEL} | awk 'NR > 1 && $3 == "ContainerCreating"' | wc -l)
+                          if [ "$con_create" -eq 0 ]; then
+                            echo " Container creating: $con_create. ✅✅✅done"
+                            break 
+                          fi
+                          echo " Container creating: $con_create. Waiting..."
+                          sleep 30
+                        done
+                        for i in $(seq 1 10); do
+                          not_ready=$(kubectl get pods -n ${NAMESPACE} -l app=${APP_LABEL} | awk 'NR > 1 && $3 != "Running"' | wc -l)
+                          if [ "$not_ready" -eq 0 ]; then
+                            echo " All pods are in Ready state"
+                            break
+                          fi
+                          echo " Not ready pods: $not_ready. Waiting..."
+                          sleep 5
+                        done
+                        echo " Checking for pods in failed or non-running state..."
+                        bad_pods=$(kubectl get pods -n ${NAMESPACE} -l app=${APP_LABEL} | awk 'NR > 1 && $3 != "Running"' | awk '{print $1}')
+
+                        if [ -n "$bad_pods" ]; then
+                          echo "❌❌❌ The following pods are not in a healthy state:"
+                          echo "$bad_pods"
+                          for pod in $bad_pods; do
+                            echo "📦 Logs for $pod:"
+                            kubectl logs -n ${NAMESPACE} "$pod" --previous || kubectl logs -n ${NAMESPACE} "$pod" || true
+                          done
+                          exit 1
+                        else
+                          echo "✅✅✅ All pods are running and healthy"
+                        fi
+                    '''
+                        }
+                    }
+                }
+    }
+}

@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: info
+  name: info-freenance
+spec:
+  selector:
+    app: info-freenance
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: info
+  name: info-freenance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: info-freenance
+  template:
+    metadata:
+      labels:
+        app: info-freenance
+    spec:
+      containers:
+      - name: info
+        image: freenance/info:685f44e
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "25m"
+          limits:
+            memory: "64Mi"
+            cpu: "50m"
+        ports:
+        - containerPort: 80

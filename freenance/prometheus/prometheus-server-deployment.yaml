@@ -1,0 +1,194 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-server
+  namespace: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-server
+  template:
+    metadata:
+      labels:
+        app: prometheus-server
+    spec:
+      containers:
+      - name: prometheus-server
+        image: prom/prometheus:v3.3.0
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+          readOnly: true
+        - name: blackbox-rules
+          mountPath: /etc/prometheus/rules/
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "50m"
+          limits:
+            memory: "64Mi"
+            cpu: "100m"
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+      - name: blackbox-rules
+        configMap:
+          name: blackbox-rules
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-server
+  namespace: prometheus
+spec:
+  ports:
+  - port: 9090
+    targetPort: 9090
+  selector:
+    app: prometheus-server
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: prometheus
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+                - "alertmanager-service.prometheus.svc.cluster.local:9093"
+
+    rule_files:
+      - /etc/prometheus/rules/blackbox-rules.yml
+
+    scrape_configs:
+      - job_name: 'backend-dev-stage'
+        metrics_path: /probe
+        params:
+          module: [http_2xx_backend_dev]
+        static_configs:
+          - targets:
+              - http://freenance-backend-service-dev.finance-dev.svc.cluster.local:8000/api/v1/countries/
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - target_label: instance
+            replacement: dev.freenance.store/api
+          - target_label: stage
+            replacement: backend-dev
+          - target_label: __address__
+            replacement: blackbox-exporter.prometheus.svc.cluster.local:9115
+
+      - job_name: 'backend-qa-stage'
+        metrics_path: /probe
+        params:
+          module: [http_2xx_backend_qa]
+        static_configs:
+          - targets:
+              - http://freenance-backend-service-qa.finance-qa.svc.cluster.local:8000/api/v1/countries/
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - target_label: instance
+            replacement: qa.freenance.store/api
+          - target_label: stage
+            replacement: backend-qa
+          - target_label: __address__
+            replacement: blackbox-exporter.prometheus.svc.cluster.local:9115
+
+      - job_name: 'backend-prod-stage'
+        metrics_path: /probe
+        params:
+          module: [http_2xx_backend_prod]
+        static_configs:
+          - targets:
+              - http://django-app-service-prod.finance-prod.svc.cluster.local:8000/api/auth/token/login/
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - target_label: instance
+            replacement: freenance.store/api
+          - target_label: stage
+            replacement: backend-prod
+          - target_label: __address__
+            replacement: blackbox-exporter.prometheus.svc.cluster.local:9115
+      
+      - job_name: 'frontend-prod-stage'
+        metrics_path: /probe
+        params:
+          module: [http_2xx_frontend_prod]
+        static_configs:
+          - targets:
+              - http://finance-frontend-prod.finance-prod.svc.cluster.local:80
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - target_label: instance
+            replacement: freenance.store
+          - target_label: stage
+            replacement: frontend-prod
+          - target_label: __address__
+            replacement: blackbox-exporter.prometheus.svc.cluster.local:9115
+      
+      - job_name: 'frontend-dev-stage'
+        metrics_path: /probe
+        params:
+          module: [http_2xx_frontend_dev]
+        static_configs:
+          - targets:
+              - http://finance-frontend-dev.finance-dev.svc.cluster.local:3000
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - target_label: instance
+            replacement: dev.freenance.store
+          - target_label: stage
+            replacement: frontend-dev
+          - target_label: __address__
+            replacement: blackbox-exporter.prometheus.svc.cluster.local:9115
+      
+      - job_name: 'frontend-qa-stage'
+        metrics_path: /probe
+        params:
+          module: [http_2xx_frontend_qa]
+        static_configs:
+          - targets:
+              - http://finance-frontend-service-qa.finance-qa.svc.cluster.local:3000
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_target
+          - target_label: instance
+            replacement: qa.freenance.store
+          - target_label: stage
+            replacement: frontend-qa
+          - target_label: __address__
+            replacement: blackbox-exporter.prometheus.svc.cluster.local:9115
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blackbox-rules
+  namespace: prometheus
+data:
+  blackbox-rules.yml: |
+    groups:
+      - name: blackbox-rules
+        rules:
+          - alert: TargetDown
+            expr: probe_success == 0
+            for: 1m
+            labels:
+              severity: critical
+              stage: "{{ $labels.stage }}"
+            annotations:
+              summary: "Target {{ $labels.instance }} is down {{ $labels.stage }}"
+              description: "The probe failed for {{ $labels.instance }} for more than 1 minute."

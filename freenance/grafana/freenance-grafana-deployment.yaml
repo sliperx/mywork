@@ -1,0 +1,116 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: grafana-pv-freenance
+  labels:
+    type: local
+    app: grafana
+spec:
+  storageClassName: local-storage
+  capacity:
+    storage: 1Gi
+  accessModes:
+  - ReadWriteOnce
+  hostPath:
+    path: "/data/finance-grafana/"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc-freenance
+  namespace: grafana
+spec:
+  storageClassName: local-storage
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: grafana
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      securityContext:
+        fsGroup: 0
+        runAsUser: 0
+        runAsGroup: 0
+        supplementalGroups:
+        - 0
+      containers:
+      - name: grafana
+        image: grafana/grafana:11.6.1
+        env:
+        - name: TZ
+          value: "UTC-3"
+        - name: GF_SERVER_ROOT_URL
+          valueFrom:
+            secretKeyRef:
+              name: grafana-secret
+              key: GF_SERVER_ROOT_URL
+        - name: GF_SECURITY_ALLOW_EMBEDDING
+          valueFrom:
+            secretKeyRef:
+              name: grafana-secret
+              key: GF_SECURITY_ALLOW_EMBEDDING
+        - name: GF_AUTH_ANONYMOUS_ENABLED
+          valueFrom:
+            secretKeyRef:
+              name: grafana-secret
+              key: GF_AUTH_ANONYMOUS_ENABLED
+        ports:
+        - containerPort: 3000
+          name: http-grafana
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 50m
+            memory: 100Mi
+          limits:
+            cpu: 100m
+            memory: 200Mi
+        volumeMounts:
+        - mountPath: /var/lib/grafana
+          name: grafana-storage
+      volumes:
+      - name: grafana-storage
+        persistentVolumeClaim:
+          claimName: grafana-pvc-freenance
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: grafana
+spec:
+  type: ClusterIP
+  selector:
+    app: grafana
+  ports:
+  - port: 3000
+    protocol: TCP
+    targetPort: http-grafana
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-secret
+  namespace: grafana
+type: Opaque
+data:
+  GF_SERVER_ROOT_URL: aHR0cHM6Ly9ncmFmYW5hLmZyZWVuYW5jZS5zdG9yZS8=
+  GF_SECURITY_ALLOW_EMBEDDING: dHJ1ZQ==
+  GF_AUTH_ANONYMOUS_ENABLED: dHJ1ZQ==
