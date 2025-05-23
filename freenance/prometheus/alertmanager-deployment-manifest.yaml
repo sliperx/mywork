@@ -48,7 +48,7 @@ data:
         telegram_configs:
           - send_resolved: true
             api_url: https://api.telegram.org
-            bot_token: '7572981565:AAHzH6UurLiITUEdhodoxy6FIj13wkzchL0'
+            bot_token: ''
             chat_id: -1002669241942
             parse_mode: Markdown
             message: |
